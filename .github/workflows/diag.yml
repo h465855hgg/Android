@@ -1,0 +1,45 @@
+name: CI Diag
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Network probes
+        run: |
+          echo "### date: $(date -u)"
+          echo "### proxy env:"
+          env | grep -i proxy || echo "(none)"
+          for u in \
+            "https://repo1.maven.org/maven2/com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/2.3.12/com.google.devtools.ksp.gradle.plugin-2.3.12.pom" \
+            "https://repo.maven.apache.org/maven2/com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/2.3.12/com.google.devtools.ksp.gradle.plugin-2.3.12.pom" \
+            "https://maven.aliyun.com/repository/public/com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/2.3.12/com.google.devtools.ksp.gradle.plugin-2.3.12.pom" \
+            "https://maven.aliyun.com/repository/google/com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/2.3.12/com.google.devtools.ksp.gradle.plugin-2.3.12.pom" \
+            "https://plugins.gradle.org/m2/com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/2.3.12/com.google.devtools.ksp.gradle.plugin-2.3.12.pom" \
+            "https://dl.google.com/dl/android/maven2/com/android/tools/build/gradle/9.3.1/gradle-9.3.1.pom" \
+            "https://repo1.maven.org/maven2/com/squareup/okhttp3/okhttp/maven-metadata.xml" \
+            ; do
+            echo "==== $u"
+            curl -sSL -m 30 -o /tmp/probe.out -w "http=%{http_code} size=%{size_download} time=%{time_total}\n" "$u" || echo "CURL FAILED rc=$?"
+            head -c 120 /tmp/probe.out 2>/dev/null; echo
+          done
+      - name: KSP metadata versions
+        run: |
+          echo "### maven central plugin marker metadata:"
+          curl -sSL -m 30 "https://repo1.maven.org/maven2/com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/maven-metadata.xml" | tail -30 || true
+          echo "### aliyun public metadata:"
+          curl -sSL -m 30 "https://maven.aliyun.com/repository/public/com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/maven-metadata.xml" | tail -30 || true
+      - name: Gradle resolution info
+        run: |
+          chmod +x gradlew
+          ./gradlew help --info --no-daemon 2>&1 | grep -iE "ksp|repository|repo |download|could not|not found|error" | tail -120 || true
